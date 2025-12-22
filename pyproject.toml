@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-edit-math"
@@ -8,7 +8,6 @@ version = "1.0.0"
 description = "Architectural Gatekeeper for AI Coding Assistants (MCP Server)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
 authors = [
   { name = "Annenkov Yuriy", email = "yannenkovkraft@gmail.com" },
 ]
@@ -33,5 +32,7 @@ Homepage = "https://github.com/yrannkv/mcp-edit-math"
 Repository = "https://github.com/yrannkv/mcp-edit-math"
 
 [project.scripts]
-# Entry point: maps the CLI command to the main function
 mcp-edit-math = "mcp_edit_math:main"
+
+[tool.setuptools]
+license-files = []
