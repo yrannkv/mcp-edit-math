@@ -1,0 +1,7 @@
+{
+  "name": "mcp-edit-math",
+  "description": "Architectural Gatekeeper for AI coding. Prevents 'tunnel vision' bugs by forcing the AI to verify dependencies (via AST parsing) before editing files. Supports JavaScript & TypeScript.",
+  "repository": "https://github.com/yrannkv/mcp-edit-math",
+  "keywords": ["python", "analysis", "security", "ast", "tree-sitter", "developer-tools"],
+  "icon": "shield"
+}
