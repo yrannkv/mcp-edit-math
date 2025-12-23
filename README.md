@@ -85,6 +85,7 @@ I realized that while AI coding is powerful, it lacks architectural awareness. S
 
 It is a self-correcting mechanism for the AI-assisted development era.
 
+<a id="donate"></a>
 ## ☕ Support the Project
 
 If this tool saved you time or prevented a bug, you can support the development via crypto:
