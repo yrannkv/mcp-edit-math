@@ -1,7 +1,5 @@
-# 1. Инструкция сборки: устанавливаем зависимости из pyproject.toml
 buildCommand: pip install .
 
-# 2. Инструкция запуска: вызываем файл напрямую через python
 startCommand:
   type: stdio
   command: python
