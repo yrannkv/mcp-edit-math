@@ -344,7 +344,31 @@ def commit_safe_edit(target_function: str, file_path: str, full_file_content: st
         return f"❌ ERROR: {str(e)}"
 
 def main():
-    mcp.run()
+    """
+    Точка входа. Автоматически выбирает режим работы:
+    - Если есть переменная окружения PORT -> запускает HTTP сервер (для Smithery/Docker).
+    - Иначе -> запускает STDIO (для локального использования в Claude).
+    """
+    import os
+    import uvicorn
+    
+    # Проверяем, запущены ли мы в среде Smithery (или любом облаке)
+    port = os.environ.get("PORT")
+    
+    if port:
+        # Режим HTTP (для Docker/Smithery)
+        print(f"Starting in HTTP mode on port {port}...")
+        # FastMCP умеет создавать ASGI приложение
+        # Важно: mcp.run() блокирует поток, поэтому для uvicorn нужен другой подход
+        # Но FastMCP имеет встроенный метод run, который поддерживает transport='sse'
+        
+        # ВНИМАНИЕ: Библиотека mcp[cli] (FastMCP) в последних версиях 
+        # может требовать явного запуска через uvicorn для продакшена.
+        # Но самый простой способ, поддерживаемый SDK:
+        mcp.run(transport="sse", port=int(port), host="0.0.0.0")
+    else:
+        # Режим STDIO (по умолчанию)
+        mcp.run()
 
 if __name__ == "__main__":
     main()

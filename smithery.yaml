@@ -1,7 +1,10 @@
-# Инструкция сборки: Устанавливаем текущую папку как пакет
-buildCommand: pip install .
+# Указываем, что используем Docker
+runtime: container
 
-# Инструкция запуска: Вызываем команду, которая создалась при установке
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .
+
+# Важно: указываем тип http, чтобы Smithery знал, как проверять здоровье сервера
 startCommand:
-  type: stdio
-  command: mcp-edit-math
+  type: http
