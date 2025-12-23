@@ -1,7 +1,7 @@
+# Инструкция сборки: Устанавливаем текущую папку как пакет
 buildCommand: pip install .
 
+# Инструкция запуска: Вызываем команду, которая создалась при установке
 startCommand:
   type: stdio
-  command: python
-  args:
-    - mcp_edit_math.py
+  command: mcp-edit-math
