@@ -1,5 +1,7 @@
+# Инструкция для Smithery: сначала установи пакет
+buildCommand: pip install .
+
+# Инструкция для запуска: используй установленную команду
 startCommand:
   type: stdio
-  command: uvx
-  args:
-    - mcp-edit-math
+  command: mcp-edit-math
