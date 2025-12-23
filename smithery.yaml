@@ -1,7 +1,9 @@
-# Инструкция для Smithery: сначала установи пакет
+# 1. Инструкция сборки: устанавливаем зависимости из pyproject.toml
 buildCommand: pip install .
 
-# Инструкция для запуска: используй установленную команду
+# 2. Инструкция запуска: вызываем файл напрямую через python
 startCommand:
   type: stdio
-  command: mcp-edit-math
+  command: python
+  args:
+    - mcp_edit_math.py
