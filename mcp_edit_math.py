@@ -17,7 +17,7 @@ limitations under the License.
 MODULE: Edit Math Supervisor (MCP Server)
 DESCRIPTION: Architectural Gatekeeper for AI coding. 
              Enforces dependency checks before file edits.
-VERSION: 1.1.3 (Fix HTML Attribute Parsing)
+VERSION: 1.1.4 (Fix ImportError message with specific versions)
 ------------------------------------------------------------------------------
 """
 
@@ -33,7 +33,8 @@ try:
     import tree_sitter_typescript
     import tree_sitter_html
 except ImportError:
-    raise ImportError("Run: pip install tree-sitter tree-sitter-javascript tree-sitter-typescript tree-sitter-html")
+    # ВАЖНО: Указываем конкретные версии, чтобы избежать конфликтов API
+    raise ImportError("Run: pip install tree-sitter==0.21.3 tree-sitter-javascript==0.21.0 tree-sitter-typescript==0.21.0 tree-sitter-html==0.20.3")
 
 mcp = FastMCP("EditMathSupervisor")
 APPROVAL_STATE: Dict[str, bool] = {}
@@ -174,7 +175,7 @@ def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optio
     return dependencies, logs
 
 def _extract_html_dependencies(tree) -> Tuple[Set[str], List[str]]:
-    """Парсинг HTML для поиска скриптов и событий (Исправлено для tree-sitter-html)."""
+    """Парсинг HTML для поиска скриптов и событий."""
     if not tree: return set(), ["Error: HTML Tree is None"]
     root_node = tree.root_node
     dependencies = set()
@@ -183,32 +184,25 @@ def _extract_html_dependencies(tree) -> Tuple[Set[str], List[str]]:
     logs.append("Scanning HTML structure...")
 
     def traverse(node):
-        # Ищем узлы типа 'attribute'
         if node.type == 'attribute':
             attr_name = None
             attr_value = None
             
-            # В tree-sitter-html атрибут состоит из детей: attribute_name, (optional =), quoted_attribute_value
             for i in range(node.child_count):
                 child = node.child(i)
                 if child.type == 'attribute_name':
                     attr_name = child.text.decode('utf8')
                 elif child.type == 'quoted_attribute_value' or child.type == 'attribute_value':
-                    # Удаляем кавычки
                     attr_value = child.text.decode('utf8').strip('"\'')
 
             if attr_name and attr_value:
-                # 1. <script src="...">
                 if attr_name == 'src':
-                    # Проверяем, что родитель - script_element или script_start_tag
                     parent = node.parent
                     if parent and (parent.type == 'script_start_tag' or parent.type == 'script_element'):
                         dependencies.add(f"FILE: {attr_value}")
                         logs.append(f"Found script: {attr_value}")
                 
-                # 2. События onclick="..."
                 elif attr_name.startswith('on'):
-                    # Берем имя функции до скобки
                     func_name = attr_value.split('(')[0].strip()
                     if func_name:
                         dependencies.add(f"EVENT: {func_name}")
