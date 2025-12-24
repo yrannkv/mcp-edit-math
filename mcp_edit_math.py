@@ -17,7 +17,7 @@ limitations under the License.
 MODULE: Edit Math Supervisor (MCP Server)
 DESCRIPTION: Architectural Gatekeeper for AI coding. 
              Enforces dependency checks before file edits.
-VERSION: 1.0.1 (Robust Version Compatibility)
+VERSION: 1.1.3 (Fix HTML Attribute Parsing)
 ------------------------------------------------------------------------------
 """
 
@@ -26,13 +26,14 @@ import os
 import traceback
 from typing import List, Dict, Set, Tuple, Optional
 
-# --- БЛОК ИНИЦИАЛИЗАЦИИ TREE-SITTER (УНИВЕРСАЛЬНЫЙ) ---
+# --- БЛОК ИНИЦИАЛИЗАЦИИ TREE-SITTER ---
 try:
     from tree_sitter import Language, Parser
     import tree_sitter_javascript
     import tree_sitter_typescript
+    import tree_sitter_html
 except ImportError:
-    raise ImportError("Run: pip install tree-sitter tree-sitter-javascript tree-sitter-typescript")
+    raise ImportError("Run: pip install tree-sitter tree-sitter-javascript tree-sitter-typescript tree-sitter-html")
 
 mcp = FastMCP("EditMathSupervisor")
 APPROVAL_STATE: Dict[str, bool] = {}
@@ -40,40 +41,45 @@ APPROVAL_STATE: Dict[str, bool] = {}
 # Глобальные переменные для парсеров
 parser_js = None
 parser_ts = None
+parser_html = None
 JS_LANGUAGE = None
 TS_LANGUAGE = None
 
 def init_parsers():
-    """Инициализация парсеров с поддержкой разных версий библиотеки."""
-    global parser_js, parser_ts, JS_LANGUAGE, TS_LANGUAGE
+    """Инициализация парсеров с явной обработкой каждого языка."""
+    global parser_js, parser_ts, parser_html, JS_LANGUAGE, TS_LANGUAGE
     
-    try:
-        # Получаем указатели на языки
-        js_ptr = tree_sitter_javascript.language()
-        ts_ptr = tree_sitter_typescript.language_typescript()
-        
-        # Попытка 1: Новая версия (0.22+) требует имя языка
+    def make_language(ptr, name):
         try:
-            JS_LANGUAGE = Language(js_ptr, "javascript")
-            TS_LANGUAGE = Language(ts_ptr, "typescript")
+            return Language(ptr, name)
         except TypeError:
-            # Попытка 2: Старая версия (0.21.x) не принимает имя
-            JS_LANGUAGE = Language(js_ptr)
-            TS_LANGUAGE = Language(ts_ptr)
-            
-        # Инициализация парсеров
+            return Language(ptr)
+        except Exception:
+            return ptr
+
+    try:
+        # 1. JavaScript
+        js_ptr = tree_sitter_javascript.language()
+        JS_LANGUAGE = make_language(js_ptr, "javascript")
         parser_js = Parser()
         parser_js.set_language(JS_LANGUAGE)
         
+        # 2. TypeScript
+        ts_ptr = tree_sitter_typescript.language_typescript()
+        TS_LANGUAGE = make_language(ts_ptr, "typescript")
         parser_ts = Parser()
         parser_ts.set_language(TS_LANGUAGE)
+
+        # 3. HTML
+        html_ptr = tree_sitter_html.language()
+        html_lang = make_language(html_ptr, "html")
+        parser_html = Parser()
+        parser_html.set_language(html_lang)
         
     except Exception as e:
         print(f"CRITICAL ERROR initializing Tree-sitter: {e}")
-        # Не роняем сервер сразу, чтобы увидеть ошибку в логах MCP
-        pass
+        traceback.print_exc()
 
-# Запускаем инициализацию
 init_parsers()
 
 # -------------------------------------------------------
@@ -84,9 +90,7 @@ def has_syntax_errors(tree) -> bool:
     return root.has_error
 
 def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optional[List[str]] = None) -> Tuple[Set[str], List[str]]:
-    if not tree:
-        return set(), ["Error: Tree is None"]
-        
+    if not tree: return set(), ["Error: Tree is None"]
     root_node = tree.root_node
     dependencies = set()
     logs = []
@@ -169,27 +173,88 @@ def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optio
     find_calls(target_node)
     return dependencies, logs
 
+def _extract_html_dependencies(tree) -> Tuple[Set[str], List[str]]:
+    """Парсинг HTML для поиска скриптов и событий (Исправлено для tree-sitter-html)."""
+    if not tree: return set(), ["Error: HTML Tree is None"]
+    root_node = tree.root_node
+    dependencies = set()
+    logs = []
+    
+    logs.append("Scanning HTML structure...")
+
+    def traverse(node):
+        # Ищем узлы типа 'attribute'
+        if node.type == 'attribute':
+            attr_name = None
+            attr_value = None
+            
+            # В tree-sitter-html атрибут состоит из детей: attribute_name, (optional =), quoted_attribute_value
+            for i in range(node.child_count):
+                child = node.child(i)
+                if child.type == 'attribute_name':
+                    attr_name = child.text.decode('utf8')
+                elif child.type == 'quoted_attribute_value' or child.type == 'attribute_value':
+                    # Удаляем кавычки
+                    attr_value = child.text.decode('utf8').strip('"\'')
+
+            if attr_name and attr_value:
+                # 1. <script src="...">
+                if attr_name == 'src':
+                    # Проверяем, что родитель - script_element или script_start_tag
+                    parent = node.parent
+                    if parent and (parent.type == 'script_start_tag' or parent.type == 'script_element'):
+                        dependencies.add(f"FILE: {attr_value}")
+                        logs.append(f"Found script: {attr_value}")
+                
+                # 2. События onclick="..."
+                elif attr_name.startswith('on'):
+                    # Берем имя функции до скобки
+                    func_name = attr_value.split('(')[0].strip()
+                    if func_name:
+                        dependencies.add(f"EVENT: {func_name}")
+                        logs.append(f"Found event: {attr_name} -> {func_name}")
+
+        for i in range(node.child_count):
+            traverse(node.child(i))
+
+    traverse(root_node)
+    return dependencies, logs
+
 @mcp.tool()
 def scan_dependencies(code: str, target_function: str, language: str = "auto", ignore_custom: List[str] = None) -> str:
     """
-    Scans code for dependencies.
+    Scans code for dependencies. Supports JS, TS, HTML.
     """
-    # ЗАЩИТА ОТ ПАДЕНИЯ
     try:
         if parser_js is None:
             return "CRITICAL ERROR: Tree-sitter parsers failed to initialize. Check server logs."
 
         APPROVAL_STATE[target_function] = False
-        
         lang_lower = language.lower()
+        
+        # --- HTML ---
+        if lang_lower == "html":
+            if not parser_html: return "Error: HTML parser not initialized."
+            tree = parser_html.parse(bytes(code, "utf8"))
+            deps, logs = _extract_html_dependencies(tree)
+            
+            sorted_deps = sorted(list(deps))
+            debug_output = "\n    ".join(logs)
+            return f"""
+            [ACCESS REVOKED] HTML Analysis for '{target_function}':
+            --------------------------------
+            Found Dependencies: {', '.join(sorted_deps) if sorted_deps else 'None'}
+            DEBUG INFO:
+            {debug_output}
+            """
+
+        # --- JS / TS ---
         selected_parser = parser_js
         logs_prefix = "JavaScript"
 
-        # --- ЛОГИКА АВТО-ДЕТЕКЦИИ ---
         if lang_lower == "auto":
             tree_js = parser_js.parse(bytes(code, "utf8"))
             js_errors = has_syntax_errors(tree_js)
-            
             tree_ts = parser_ts.parse(bytes(code, "utf8"))
             ts_errors = has_syntax_errors(tree_ts)
             
@@ -211,9 +276,6 @@ def scan_dependencies(code: str, target_function: str, language: str = "auto", i
             logs_prefix = "TypeScript"
         elif lang_lower == "python":
             return "Python support via AST module is available in v4.3 if needed."
-        else:
-            selected_parser = parser_js
-            logs_prefix = "JavaScript"
 
         # --- ПАРСИНГ ---
         tree_raw = selected_parser.parse(bytes(code, "utf8"))
@@ -248,7 +310,6 @@ def scan_dependencies(code: str, target_function: str, language: str = "auto", i
         ...
         """
     except Exception as e:
-        # Возвращаем ошибку в чат, а не крашим сервер
         return f"INTERNAL SERVER ERROR during scanning: {str(e)}\nTraceback: {traceback.format_exc()}"
 
 @mcp.tool()
@@ -258,10 +319,6 @@ def calculate_integrity_score(
     verified_dependencies: List[str],
     user_confirmed: bool = False
 ) -> str:
-    """
-    Рассчитывает Integrity Score.
-    Если есть зависимости, ТРЕБУЕТ подтверждения от пользователя (Strict Mode).
-    """
     # 1. Если зависимостей нет - зеленый свет сразу
     if not dependencies:
         APPROVAL_STATE[target_function] = True
@@ -283,28 +340,17 @@ def calculate_integrity_score(
         4. Call this tool again with `user_confirmed=True`.
         """
 
-    # 3. Если флаг есть - считаем математику (для проформы) и даем доступ
-    # Мы доверяем флагу user_confirmed, так как ИИ не может его поставить, 
-    # не получив ответ от юзера (в рамках диалога).
-    
+    # 3. Если флаг есть - считаем математику
     BASE_WEIGHT = 0.5
     REMAINING_WEIGHT = 0.5
     count_deps = len(dependencies)
     weight_per_dep = REMAINING_WEIGHT / count_deps
     current_score = BASE_WEIGHT
     
-    details = [f"1. Target '{target_function}' edited: +{BASE_WEIGHT}"]
-    
     for dep in dependencies:
         if dep in verified_dependencies:
             current_score += weight_per_dep
-            details.append(f"2. Dependency '{dep}' VERIFIED: +{weight_per_dep:.4f}")
-        else:
-            details.append(f"3. Dependency '{dep}' NOT VERIFIED: +0.0")
 
-    # В строгом режиме, если юзер подтвердил, мы можем простить мелкие недочеты математики,
-    # либо требовать и математику, и подтверждение. 
-    # Сделаем строго: математика тоже должна сойтись.
     is_safe = current_score >= 0.99
     
     if is_safe:
@@ -344,30 +390,12 @@ def commit_safe_edit(target_function: str, file_path: str, full_file_content: st
         return f"❌ ERROR: {str(e)}"
 
 def main():
-    """
-    Точка входа. Автоматически выбирает режим работы:
-    - Если есть переменная окружения PORT -> запускает HTTP сервер (для Smithery/Docker).
-    - Иначе -> запускает STDIO (для локального использования в Claude).
-    """
     import os
-    import uvicorn
-    
-    # Проверяем, запущены ли мы в среде Smithery (или любом облаке)
     port = os.environ.get("PORT")
-    
     if port:
-        # Режим HTTP (для Docker/Smithery)
         print(f"Starting in HTTP mode on port {port}...")
-        # FastMCP умеет создавать ASGI приложение
-        # Важно: mcp.run() блокирует поток, поэтому для uvicorn нужен другой подход
-        # Но FastMCP имеет встроенный метод run, который поддерживает transport='sse'
-        
-        # ВНИМАНИЕ: Библиотека mcp[cli] (FastMCP) в последних версиях 
-        # может требовать явного запуска через uvicorn для продакшена.
-        # Но самый простой способ, поддерживаемый SDK:
         mcp.run(transport="sse", port=int(port), host="0.0.0.0")
     else:
-        # Режим STDIO (по умолчанию)
         mcp.run()
 
 if __name__ == "__main__":
