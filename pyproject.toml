@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-edit-math"
-version = "1.0.0"
+version = "1.2.0"
 description = "Architectural Gatekeeper for AI Coding Assistants (MCP Server)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ dependencies = [
   "tree-sitter==0.21.3",
   "tree-sitter-javascript==0.21.0",
   "tree-sitter-typescript==0.21.0",
-  "tree-sitter-html==0.20.3",  # <--- Добавлено
+  "tree-sitter-html==0.20.3",
 ]
 
 [project.urls]

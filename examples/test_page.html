@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Page</title>
+    <!-- Зависимость 1: Внешний файл -->
+    <script src="test_script.js"></script>
+</head>
+<body>
+    <h1>Welcome</h1>
+    <!-- Зависимость 2: Обработчик события (вызов функции) -->
+    <button onclick="processClick()">Click Me</button>
+    
+    <!-- Зависимость 3: Еще один обработчик -->
+    <div onmouseover="trackHover('header')">Hover me</div>
+</body>
+</html>

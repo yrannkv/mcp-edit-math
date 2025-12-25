@@ -12,31 +12,34 @@ It prevents "Tunnel Vision" by forcing the AI to verify code dependencies before
 
 ### ✨ Key Features
 
-*   **AST Parsing (Tree-sitter):** Accurate dependency detection for **JavaScript** and **TypeScript**. Understands classes, nested functions, and `this` context.
+*   **AST Parsing (Tree-sitter):** Accurate dependency detection for **JavaScript**, **TypeScript**, and **HTML**.
+    *   *JS/TS:* Understands classes, nested functions, and `this` context.
+    *   *HTML:* Detects dependencies in `<script src>` tags and event handlers (e.g., `onclick`).
+*   **Signature Verification:** Automatically detects function renaming. If the AI changes a function name, the server triggers **Strict Mode** and demands user confirmation.
 *   **Stateful Gatekeeper:** The server tracks verification status. The `commit_safe_edit` tool returns `⛔ ACCESS DENIED` if the Integrity Score is not 1.0.
-*   **Interactive Conflict Resolution:** If the AI detects breaking changes or cannot verify an external dependency, the server forces it to **ask the user for permission** before proceeding.
+*   **Human-in-the-Loop:** Supports `force_override` for complex scenarios where the user explicitly allows a risky edit.
 *   **Smart Filtering:** Automatically ignores standard language methods (e.g., `.map()`, `console.log`) to keep the focus on your business logic.
 
 ### 🚀 The "#editmath" Protocol
 
 The server enforces a strict workflow:
 
-1.  **🔍 SCAN:** The AI scans the target function using AST.
-2.  **🎫 TICKET:** The AI verifies dependencies. If conflicts exist, it **must ask the user** for confirmation.
+1.  **🔍 SCAN:** The AI scans the target function (or HTML file) using AST.
+2.  **🎫 TICKET:** The AI calculates the integrity score. It must provide the **proposed header** of the function. If renaming is detected, the server blocks execution until the user approves.
 3.  **💾 COMMIT:** Only with a valid ticket (or user override) can the AI save changes.
 
 ### 📦 Installation
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/mcp-edit-math.git
+    git clone https://github.com/yrannkv/mcp-edit-math.git
     cd mcp-edit-math
     ```
 
 2.  **Install dependencies:**
-    *Note: Specific versions are recommended for stability.*
+    *Note: Specific versions are required for stability.*
     ```bash
-    pip install mcp tree-sitter==0.21.3 tree-sitter-javascript==0.21.0 tree-sitter-typescript==0.21.0
+    pip install mcp tree-sitter==0.21.3 tree-sitter-javascript==0.21.0 tree-sitter-typescript==0.21.0 tree-sitter-html==0.20.3
     ```
 
 3.  **Configure your MCP Client:**
@@ -64,9 +67,11 @@ You are operating under a strict safety protocol. Direct file editing is FORBIDD
 Follow this sequence precisely:
 
 1. 🔍 SCAN: Call `scan_dependencies(code, target_function)`.
-   - Determine `language` ("js", "ts") based on file extension.
+   - Determine `language` ("js", "ts", "html") based on file extension.
 
 2. 🎫 GET TICKET: Call `calculate_integrity_score`.
+   - **REQUIRED:** You MUST provide the `proposed_header` argument (e.g., "function newName(arg1)").
+   - The server will compare it with the target function name. If they differ, it will trigger Strict Mode.
    - **If server returns "STRICT MODE INTERVENTION":**
      a. STOP. Do not proceed.
      b. ASK THE USER: Explain the plan/conflicts and ask "Do you approve?".

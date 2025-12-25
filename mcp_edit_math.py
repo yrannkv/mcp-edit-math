@@ -17,7 +17,7 @@ limitations under the License.
 MODULE: Edit Math Supervisor (MCP Server)
 DESCRIPTION: Architectural Gatekeeper for AI coding. 
              Enforces dependency checks before file edits.
-VERSION: 1.1.4 (Fix ImportError message with specific versions)
+VERSION: 1.2.0 (Signature Verification + Auto-Detect Renaming)
 ------------------------------------------------------------------------------
 """
 
@@ -33,7 +33,6 @@ try:
     import tree_sitter_typescript
     import tree_sitter_html
 except ImportError:
-    # ВАЖНО: Указываем конкретные версии, чтобы избежать конфликтов API
     raise ImportError("Run: pip install tree-sitter==0.21.3 tree-sitter-javascript==0.21.0 tree-sitter-typescript==0.21.0 tree-sitter-html==0.20.3")
 
 mcp = FastMCP("EditMathSupervisor")
@@ -311,39 +310,66 @@ def calculate_integrity_score(
     target_function: str, 
     dependencies: List[str], 
     verified_dependencies: List[str],
+    proposed_header: str = "",  # <--- НОВЫЙ АРГУМЕНТ ДЛЯ ПРОВЕРКИ ИМЕНИ
+    breaking_change_description: str = "",
     user_confirmed: bool = False
 ) -> str:
-    # 1. Если зависимостей нет - зеленый свет сразу
-    if not dependencies:
-        APPROVAL_STATE[target_function] = True
-        return f"Score: 1.0 (No dependencies). Edit to '{target_function}' is safe."
+    """
+    Рассчитывает Integrity Score.
+    Автоматически обнаруживает переименование через proposed_header.
+    """
+    deps_safe = dependencies if dependencies else []
+    verified_safe = verified_dependencies if verified_dependencies else []
 
-    # 2. Если зависимости есть, но нет флага подтверждения - БЛОКИРУЕМ
-    if not user_confirmed:
+    # 1. АВТО-ДЕТЕКЦИЯ ПЕРЕИМЕНОВАНИЯ (Server-Side Logic)
+    is_renaming = False
+    if proposed_header:
+        # Если старое имя не найдено в новом заголовке -> Переименование
+        if target_function not in proposed_header:
+            is_renaming = True
+    
+    # 2. Логика блокировки
+    needs_confirmation = (len(deps_safe) > 0) or (len(breaking_change_description) > 0) or is_renaming
+
+    if needs_confirmation and not user_confirmed:
+        reasons = []
+        if deps_safe: reasons.append(f"Dependencies: {len(deps_safe)}")
+        if breaking_change_description: reasons.append("Breaking change declared")
+        if is_renaming: reasons.append(f"RENAMING DETECTED (Target '{target_function}' not found in '{proposed_header}')")
+        
+        reason_str = ", ".join(reasons)
+
         return f"""
         ✋ STRICT MODE INTERVENTION
         --------------------------
-        Dependencies detected: {len(dependencies)} ({', '.join(dependencies[:3])}...)
+        Reason: {reason_str}
         
-        The server FORBIDS silent edits when dependencies exist.
+        The server FORBIDS silent edits for this operation.
         
         INSTRUCTION FOR AI:
         1. STOP. Do not edit yet.
-        2. Explain your plan to the user: "I see dependencies. I plan to change X and update Y. Proceed?"
+        2. Explain your plan to the user: "I plan to rename/modify... Proceed?"
         3. Wait for the user's "Yes".
         4. Call this tool again with `user_confirmed=True`.
         """
 
-    # 3. Если флаг есть - считаем математику
+    # 3. Расчет баллов
+    if not deps_safe and not is_renaming and not breaking_change_description:
+        APPROVAL_STATE[target_function] = True
+        return f"Score: 1.0 (Safe). Edit to '{target_function}' is allowed."
+
     BASE_WEIGHT = 0.5
     REMAINING_WEIGHT = 0.5
-    count_deps = len(dependencies)
-    weight_per_dep = REMAINING_WEIGHT / count_deps
-    current_score = BASE_WEIGHT
+    count_deps = len(deps_safe)
     
-    for dep in dependencies:
-        if dep in verified_dependencies:
-            current_score += weight_per_dep
+    if count_deps == 0:
+        current_score = 1.0
+    else:
+        weight_per_dep = REMAINING_WEIGHT / count_deps
+        current_score = BASE_WEIGHT
+        for dep in deps_safe:
+            if dep in verified_safe:
+                current_score += weight_per_dep
 
     is_safe = current_score >= 0.99
     
@@ -351,12 +377,17 @@ def calculate_integrity_score(
         APPROVAL_STATE[target_function] = True
         return f"Integrity Score: {current_score:.4f} / 1.0\nSTATUS: ✅ ACCESS GRANTED (User Confirmed)"
     else:
+        extra_verified = set(verified_safe) - set(deps_safe)
+        hint_msg = ""
+        if extra_verified:
+            hint_msg = f"\n💡 HINT: You verified items NOT in the list: {list(extra_verified)}.\nIf renaming, verify the ORIGINAL name."
+
         return f"""
         Integrity Score: {current_score:.4f} / 1.0
         STATUS: ⛔ ACCESS DENIED
         
-        User confirmed, BUT you missed verifying some dependencies in the list.
-        Please verify: {[d for d in dependencies if d not in verified_dependencies]}
+        User confirmed, BUT you missed verifying dependencies: {[d for d in deps_safe if d not in verified_safe]}
+        {hint_msg}
         """
 
 @mcp.tool()
