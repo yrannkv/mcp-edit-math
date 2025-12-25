@@ -17,16 +17,17 @@ limitations under the License.
 MODULE: Edit Math Supervisor (MCP Server)
 DESCRIPTION: Architectural Gatekeeper for AI coding. 
              Enforces dependency checks before file edits.
-VERSION: 1.2.0 (Signature Verification + Auto-Detect Renaming)
+VERSION: 1.3.0 (Added Native Python Support)
 ------------------------------------------------------------------------------
 """
 
 from mcp.server.fastmcp import FastMCP
 import os
 import traceback
+import ast  # <--- НАТИВНЫЙ МОДУЛЬ PYTHON
 from typing import List, Dict, Set, Tuple, Optional
 
-# --- БЛОК ИНИЦИАЛИЗАЦИИ TREE-SITTER ---
+# --- БЛОК ИНИЦИАЛИЗАЦИИ TREE-SITTER (JS/TS/HTML) ---
 try:
     from tree_sitter import Language, Parser
     import tree_sitter_javascript
@@ -89,6 +90,71 @@ def has_syntax_errors(tree) -> bool:
     root = tree.root_node
     return root.has_error
 
+# --- ЛОГИКА PYTHON (AST) ---
+def _extract_python_dependencies(code: str, target_name: str, ignore_custom: Optional[List[str]] = None) -> Tuple[Set[str], List[str]]:
+    """Парсинг Python кода используя встроенный модуль ast."""
+    dependencies = set()
+    logs = []
+    
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return set(), [f"Python Syntax Error: {e}"]
+
+    # 1. Находим целевой узел (Функция, Асинхронная функция или Класс)
+    target_node = None
+    
+    # Сначала ищем в корне
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == target_name:
+                target_node = node
+                break
+    
+    if target_node:
+        logs.append(f"✅ Found Python target: {type(target_node).__name__}")
+    else:
+        logs.append("❌ Target node NOT found. Scanning entire snippet.")
+        target_node = tree
+
+    # 2. Игнор-лист для Python (Built-ins)
+    IGNORE_PYTHON = {
+        "print", "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
+        "range", "enumerate", "zip", "map", "filter", "sum", "min", "max", "abs",
+        "isinstance", "issubclass", "type", "super", "getattr", "setattr", "hasattr",
+        "open", "dir", "id", "input", "repr", "round", "sorted", "reversed",
+        "__init__", "__str__", "__repr__", "self"
+    }
+    
+    if ignore_custom:
+        IGNORE_PYTHON.update(ignore_custom)
+
+    # 3. Поиск вызовов
+    for node in ast.walk(target_node):
+        call_name = None
+        
+        if isinstance(node, ast.Call):
+            # Случай: func()
+            if isinstance(node.func, ast.Name):
+                call_name = node.func.id
+            
+            # Случай: obj.method()
+            elif isinstance(node.func, ast.Attribute):
+                call_name = node.func.attr
+                # Если вызов self.method(), это важно!
+                if isinstance(node.func.value, ast.Name) and node.func.value.id == 'self':
+                    logs.append(f"Found self call: {call_name}")
+        
+        if call_name:
+            if call_name not in IGNORE_PYTHON and call_name != target_name:
+                dependencies.add(call_name)
+            else:
+                # logs.append(f"Ignored: {call_name}")
+                pass
+
+    return dependencies, logs
+
+# --- ЛОГИКА JS/TS/HTML (Tree-sitter) ---
 def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optional[List[str]] = None) -> Tuple[Set[str], List[str]]:
     if not tree: return set(), ["Error: Tree is None"]
     root_node = tree.root_node
@@ -174,49 +240,38 @@ def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optio
     return dependencies, logs
 
 def _extract_html_dependencies(tree) -> Tuple[Set[str], List[str]]:
-    """Парсинг HTML для поиска скриптов и событий."""
     if not tree: return set(), ["Error: HTML Tree is None"]
     root_node = tree.root_node
     dependencies = set()
     logs = []
-    
     logs.append("Scanning HTML structure...")
-
     def traverse(node):
         if node.type == 'attribute':
             attr_name = None
             attr_value = None
-            
             for i in range(node.child_count):
                 child = node.child(i)
-                if child.type == 'attribute_name':
-                    attr_name = child.text.decode('utf8')
-                elif child.type == 'quoted_attribute_value' or child.type == 'attribute_value':
-                    attr_value = child.text.decode('utf8').strip('"\'')
-
+                if child.type == 'attribute_name': attr_name = child.text.decode('utf8')
+                elif child.type == 'quoted_attribute_value' or child.type == 'attribute_value': attr_value = child.text.decode('utf8').strip('"\'')
             if attr_name and attr_value:
                 if attr_name == 'src':
                     parent = node.parent
                     if parent and (parent.type == 'script_start_tag' or parent.type == 'script_element'):
                         dependencies.add(f"FILE: {attr_value}")
                         logs.append(f"Found script: {attr_value}")
-                
                 elif attr_name.startswith('on'):
                     func_name = attr_value.split('(')[0].strip()
                     if func_name:
                         dependencies.add(f"EVENT: {func_name}")
                         logs.append(f"Found event: {attr_name} -> {func_name}")
-
-        for i in range(node.child_count):
-            traverse(node.child(i))
-
+        for i in range(node.child_count): traverse(node.child(i))
     traverse(root_node)
     return dependencies, logs
 
 @mcp.tool()
 def scan_dependencies(code: str, target_function: str, language: str = "auto", ignore_custom: List[str] = None) -> str:
     """
-    Scans code for dependencies. Supports JS, TS, HTML.
+    Scans code for dependencies. Supports JS, TS, HTML, Python.
     """
     try:
         if parser_js is None:
@@ -225,12 +280,26 @@ def scan_dependencies(code: str, target_function: str, language: str = "auto", i
         APPROVAL_STATE[target_function] = False
         lang_lower = language.lower()
         
+        # --- PYTHON (Native AST) ---
+        if lang_lower == "python" or lang_lower == "py":
+            deps, logs = _extract_python_dependencies(code, target_function, ignore_custom)
+            sorted_deps = sorted(list(deps))
+            debug_output = "\n    ".join(logs[:15])
+            return f"""
+            [ACCESS REVOKED] Python Analysis for '{target_function}':
+            --------------------------------
+            Found Dependencies: {', '.join(sorted_deps) if sorted_deps else 'None'}
+            SUGGESTED INDEX: {target_function + ("_" + "_".join(sorted_deps) if sorted_deps else "")}
+            
+            DEBUG INFO:
+            {debug_output}
+            """
+
         # --- HTML ---
         if lang_lower == "html":
             if not parser_html: return "Error: HTML parser not initialized."
             tree = parser_html.parse(bytes(code, "utf8"))
             deps, logs = _extract_html_dependencies(tree)
-            
             sorted_deps = sorted(list(deps))
             debug_output = "\n    ".join(logs)
             return f"""
@@ -246,6 +315,23 @@ def scan_dependencies(code: str, target_function: str, language: str = "auto", i
         logs_prefix = "JavaScript"
 
         if lang_lower == "auto":
+            # Простая эвристика для Python: если есть 'def ' или 'import ', пробуем Python
+            if "def " in code or "import " in code or "class " in code:
+                 # Попытка распарсить как Python
+                 try:
+                     ast.parse(code)
+                     # Если успешно - переключаемся на Python ветку
+                     deps, logs = _extract_python_dependencies(code, target_function, ignore_custom)
+                     sorted_deps = sorted(list(deps))
+                     return f"""
+                     [ACCESS REVOKED] Auto-Detected Python Analysis for '{target_function}':
+                     --------------------------------
+                     Found Dependencies: {', '.join(sorted_deps) if sorted_deps else 'None'}
+                     SUGGESTED INDEX: {target_function + ("_" + "_".join(sorted_deps) if sorted_deps else "")}
+                     """
+                 except:
+                     pass # Не питон, идем дальше к JS
+
             tree_js = parser_js.parse(bytes(code, "utf8"))
             js_errors = has_syntax_errors(tree_js)
             tree_ts = parser_ts.parse(bytes(code, "utf8"))
@@ -267,10 +353,8 @@ def scan_dependencies(code: str, target_function: str, language: str = "auto", i
         elif lang_lower in ["ts", "typescript", "tsx"]:
             selected_parser = parser_ts
             logs_prefix = "TypeScript"
-        elif lang_lower == "python":
-            return "Python support via AST module is available in v4.3 if needed."
 
-        # --- ПАРСИНГ ---
+        # --- ПАРСИНГ JS/TS ---
         tree_raw = selected_parser.parse(bytes(code, "utf8"))
         deps, logs = _extract_dependencies_from_tree(tree_raw, target_function, ignore_custom)
         
@@ -310,21 +394,19 @@ def calculate_integrity_score(
     target_function: str, 
     dependencies: List[str], 
     verified_dependencies: List[str],
-    proposed_header: str = "",  # <--- НОВЫЙ АРГУМЕНТ ДЛЯ ПРОВЕРКИ ИМЕНИ
+    proposed_header: str = "",
     breaking_change_description: str = "",
     user_confirmed: bool = False
 ) -> str:
     """
     Рассчитывает Integrity Score.
-    Автоматически обнаруживает переименование через proposed_header.
     """
     deps_safe = dependencies if dependencies else []
     verified_safe = verified_dependencies if verified_dependencies else []
 
-    # 1. АВТО-ДЕТЕКЦИЯ ПЕРЕИМЕНОВАНИЯ (Server-Side Logic)
+    # 1. АВТО-ДЕТЕКЦИЯ ПЕРЕИМЕНОВАНИЯ
     is_renaming = False
     if proposed_header:
-        # Если старое имя не найдено в новом заголовке -> Переименование
         if target_function not in proposed_header:
             is_renaming = True
     
@@ -395,14 +477,7 @@ def commit_safe_edit(target_function: str, file_path: str, full_file_content: st
     has_ticket = APPROVAL_STATE.get(target_function, False)
     
     if not has_ticket and not force_override:
-        return f"""
-        ⛔ SECURITY BLOCK
-        -----------------
-        Integrity Score is NOT 1.0. Access Denied.
-        OPTIONS:
-        1. Verify dependencies.
-        2. Ask user for permission and use force_override=True.
-        """
+        return "⛔ SECURITY BLOCK: Integrity Score is NOT 1.0. Access Denied."
     
     try:
         file_path = os.path.normpath(file_path)

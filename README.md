@@ -12,7 +12,7 @@ It prevents "Tunnel Vision" by forcing the AI to verify code dependencies before
 
 ### ✨ Key Features
 
-*   **AST Parsing (Tree-sitter):** Accurate dependency detection for **JavaScript**, **TypeScript**, and **HTML**.
+*   **AST Parsing (Tree-sitter):** Accurate dependency detection for **JavaScript**, **TypeScript**, and **HTML**, and **Python**
     *   *JS/TS:* Understands classes, nested functions, and `this` context.
     *   *HTML:* Detects dependencies in `<script src>` tags and event handlers (e.g., `onclick`).
 *   **Signature Verification:** Automatically detects function renaming. If the AI changes a function name, the server triggers **Strict Mode** and demands user confirmation.
