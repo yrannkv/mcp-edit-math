@@ -28,6 +28,20 @@ The server enforces a strict workflow:
 2.  **🎫 TICKET:** The AI calculates the integrity score. It must provide the **proposed header** of the function. If renaming is detected, the server blocks execution until the user approves.
 3.  **💾 COMMIT:** Only with a valid ticket (or user override) can the AI save changes.
 
+### ⚡ Quick Start (via uvx)
+
+If you use `uv`, you can run the server directly without cloning the repo:
+
+```json
+{
+  "mcpServers": {
+    "edit-math": {
+      "command": "uvx",
+      "args": ["mcp-edit-math"]
+    }
+  }
+}
+
 ### 📦 Installation
 
 1.  **Clone the repository:**
