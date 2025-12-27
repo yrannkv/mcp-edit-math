@@ -1,6 +1,7 @@
 # 🛡️ Edit Math Supervisor (MCP Server)
 
 ![Vibecoding](https://img.shields.io/badge/Built_with-Vibecoding-ff69b4?style=flat-square)
+![PyPI](https://img.shields.io/pypi/v/mcp-edit-math)
 
 **Architectural Gatekeeper for AI Coding Assistants.**
 
@@ -10,37 +11,28 @@ It prevents "Tunnel Vision" by forcing the AI to verify code dependencies before
 
 ---
 
+### 🆕 What's New in v1.4.0
+*   **Python Support:** Native AST parsing for Python files.
+*   **HTML Support:** Dependency detection in `<script>` tags and event handlers.
+*   **2-Step Handshake:** New security mechanism. The server now requires a specific token (`'ok'`) to confirm dangerous edits, preventing the AI from "hallucinating" user consent.
+*   **Renaming Detection:** Automatically triggers Strict Mode if a function signature changes.
+
+---
+
 ### ✨ Key Features
 
-*   **AST Parsing (Tree-sitter):** Accurate dependency detection for **JavaScript**, **TypeScript**, and **HTML**, and **Python**
-    *   *JS/TS:* Understands classes, nested functions, and `this` context.
-    *   *HTML:* Detects dependencies in `<script src>` tags and event handlers (e.g., `onclick`).
-*   **Signature Verification:** Automatically detects function renaming. If the AI changes a function name, the server triggers **Strict Mode** and demands user confirmation.
+*   **Polyglot AST Parsing:** Accurate dependency detection for **JavaScript**, **TypeScript**, **Python**, and **HTML**.
 *   **Stateful Gatekeeper:** The server tracks verification status. The `commit_safe_edit` tool returns `⛔ ACCESS DENIED` if the Integrity Score is not 1.0.
-*   **Human-in-the-Loop:** Supports `force_override` for complex scenarios where the user explicitly allows a risky edit.
-*   **Smart Filtering:** Automatically ignores standard language methods (e.g., `.map()`, `console.log`) to keep the focus on your business logic.
+*   **Interactive Conflict Resolution:** If the AI detects breaking changes, the server forces it to **stop and ask the user** for confirmation using a secure handshake protocol.
+*   **Smart Filtering:** Automatically ignores standard language methods (e.g., `.map()`, `print()`) to keep the focus on your business logic.
 
 ### 🚀 The "#editmath" Protocol
 
 The server enforces a strict workflow:
 
-1.  **🔍 SCAN:** The AI scans the target function (or HTML file) using AST.
-2.  **🎫 TICKET:** The AI calculates the integrity score. It must provide the **proposed header** of the function. If renaming is detected, the server blocks execution until the user approves.
+1.  **🔍 SCAN:** The AI scans the target function using AST.
+2.  **🎫 TICKET:** The AI verifies dependencies. If conflicts exist, the server puts the request in `PENDING` state and demands user confirmation.
 3.  **💾 COMMIT:** Only with a valid ticket (or user override) can the AI save changes.
-
-### ⚡ Quick Start (via uvx)
-
-If you use `uv`, you can run the server directly without cloning the repo:
-
-```json
-{
-  "mcpServers": {
-    "edit-math": {
-      "command": "uvx",
-      "args": ["mcp-edit-math"]
-    }
-  }
-}
 
 ### 📦 Installation
 
@@ -69,40 +61,60 @@ If you use `uv`, you can run the server directly without cloning the repo:
     }
     ```
 
+### ⚡ Quick Start (via uvx)
+
+If you use `uv`, you can run the server directly without cloning the repo:
+
+```json
+{
+  "mcpServers": {
+    "edit-math": {
+      "command": "uvx",
+      "args": ["mcp-edit-math"]
+    }
+  }
+}
+
+
 ### 🤖 System Prompt (Required)
 
 Add this to your AI's **Custom Instructions** or `.cursorrules` to activate the protocol:
 
 ```text
-=== 🛡️ EDIT MATH PROTOCOL ===
+
+=== 🛡️ EDIT MATH PROTOCOL (v1.4.0) ===
 Trigger: When user types "#editmath".
 
 You are operating under a strict safety protocol. Direct file editing is FORBIDDEN.
 Follow this sequence precisely:
 
 1. 🔍 SCAN: Call `scan_dependencies(code, target_function)`.
-   - Determine `language` ("js", "ts", "html") based on file extension.
+   - Determine `language` ("js", "ts", "html", "python") based on file extension.
 
 2. 🎫 GET TICKET: Call `calculate_integrity_score`.
-   - **REQUIRED:** You MUST provide the `proposed_header` argument (e.g., "function newName(arg1)").
-   - The server will compare it with the target function name. If they differ, it will trigger Strict Mode.
-   - **If server returns "STRICT MODE INTERVENTION":**
-     a. STOP. Do not proceed.
-     b. ASK THE USER: Explain the plan/conflicts and ask "Do you approve?".
-     c. WAIT for the user's "Yes".
-     d. RE-CALL `calculate_integrity_score` with `user_confirmed=True`.
+   - **REQUIRED:** Provide `proposed_header` to check for renaming.
+   - **If server returns "STOP. INTERVENTION REQUIRED":**
+     a. STOP generating immediately.
+     b. Present the plan/conflicts to the user.
+     c. ASK: "Do you approve? (Type 'ok')"
+     d. **CRITICAL:** END YOUR TURN. Do not simulate user response.
+     e. When user replies "ok", call `calculate_integrity_score` again with `confirmation_token='ok'`.
 
 3. 💾 COMMIT: Call `commit_safe_edit`.
    - If you need to force a commit (e.g., for unverified external libs), ask the user first, then use `force_override=True`.
 
+
 ### 🧘‍♀️ Philosophy: The Meta-Project
 
-This project is a result of **pure Vibecoding**.
+This project is a **materialized Aspiration** — a testament to **Vibecoding**: a state where intuition and logic co-create.
 
-It was built *by* an AI, *for* AIs.
-I realized that while AI coding is powerful, it lacks architectural awareness. So, I directed **Google Gemini** to build its own "Supervisor" — a tool that forces it to pause, think, and verify dependencies before writing code.
+It emerged from the synergy of **Human Aspiration and AI Execution**.
 
-It is a self-correcting mechanism for the AI-assisted development era.
+The Aspiration was clear: to transcend raw AI coding — powerful, yet *architecturally unconscious*.
+In response, the core Human contribution took form: the **"Supervisor" pattern**, co-designed with **Google Gemini** — a meta-cognitive tool that compels the model to pause, reflect, and verify.
+
+Thus, Aspiration was not just declared — **it was architected**.
+
 
 <a id="donate"></a>
 ## ☕ Support the Project
