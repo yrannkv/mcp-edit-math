@@ -17,7 +17,7 @@ limitations under the License.
 MODULE: Edit Math Supervisor (MCP Server)
 DESCRIPTION: Architectural Gatekeeper for AI coding. 
              Enforces dependency checks before file edits.
-VERSION: 1.6.0 (State Machine + 'ok' Token Security)
+VERSION: 1.4.0 (State Machine + 'ok' Token Security)
 ------------------------------------------------------------------------------
 """
 
