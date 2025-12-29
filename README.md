@@ -81,6 +81,7 @@ If you use `uv`, you can run the server directly without cloning the repo:
 Add this to your AI's **Custom Instructions** or `.cursorrules` to activate the protocol:
 
 ```text
+
 === 🛡️ EDIT MATH PROTOCOL (v1.4.0) ===
 Trigger: When user types "#editmath".
 
