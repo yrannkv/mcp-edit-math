@@ -100,6 +100,7 @@ Follow this sequence precisely:
      d. **CRITICAL:** END YOUR TURN. Do not simulate user response.
      e. When user replies "ok", call `calculate_integrity_score` again with `confirmation_token='ok'`.
 
+```markdown
 3. 💾 COMMIT: Call `commit_safe_edit`.
    - If you need to force a commit (e.g., for unverified external libs), ask the user first, then use `force_override=True`.
 
