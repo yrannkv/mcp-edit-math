@@ -184,7 +184,7 @@ especially in environments where correctness and trust matter.
 
 ---
 
-### 🆕 What's New in v1.4.0
+### 🆕 What's New in v1.4.1
 *   **Python Support:** Native AST parsing for Python files.
 *   **HTML Support:** Dependency detection in `<script>` tags and event handlers.
 *   **2-Step Handshake:** New security mechanism. The server now requires a specific token (`'ok'`) to confirm dangerous edits, preventing the AI from "hallucinating" user consent.
@@ -257,7 +257,7 @@ Add this to your AI's **Custom Instructions** or `.cursorrules` to activate the 
 
 ```
 
-=== 🛡️ EDIT MATH PROTOCOL (v1.4.0) ===
+=== 🛡️ EDIT MATH PROTOCOL (v1.4.1) ===
 Trigger: When user types "#editmath".
 
 You are operating under a strict safety protocol. Direct file editing is FORBIDDEN.
