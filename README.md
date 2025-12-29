@@ -3,15 +3,184 @@
 ### An implementation of the Edit Approval State Machine (EASM)  
 ### A stateful gatekeeper for AI-driven code editing
 
-![Vibecoding](https://img.shields.io/badge/Built_with-Vibecoding-ff69b4?style=flat-square)
 [![Donate](https://img.shields.io/badge/Donate-Crypto-green?style=flat-square)](#donate)
 ![PyPI](https://img.shields.io/pypi/v/mcp-edit-math)
 
-**Architectural Gatekeeper for AI Coding Assistants.**
+## Overview
 
-**Edit Math Supervisor** is an advanced [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that acts as a **Stateful Gatekeeper** for AI coding assistants (Claude Desktop, Roo Code, Cline, Lingma).
+This project implements a **Model Context Protocol (MCP) server** that acts as
+an architectural gatekeeper between an AI coding agent and the file system.
 
-It prevents "Tunnel Vision" by forcing the AI to verify code dependencies before editing. Unlike simple linters, this server **physically blocks** file saving until the AI proves that the changes are safe.
+Its purpose is simple:
+
+> **An AI is not allowed to edit code unless it has demonstrated awareness of
+the consequences and obtained explicit human approval.**
+
+The server enforces this rule procedurally, not heuristically.
+
+---
+
+## Why this exists
+
+Modern AI coding assistants can generate and apply code changes faster than
+humans can reliably reason about their impact.
+
+This creates a dangerous asymmetry:
+- the AI can *act immediately*
+- the human can only *review after the fact*
+
+In practice, this leads to:
+- silent breaking changes
+- accidental dependency violations
+- refactors without understanding downstream effects
+
+This project explores a different model.
+
+**The AI must stop. Explain. Ask. And wait.**
+
+Only then is it allowed to modify code.
+
+---
+
+### 🧠 Philosophy: Architectural Control over AI Action
+
+This project is intentionally not focused on making AI “smarter”.
+
+Instead, it explores a different question:
+
+> What architectural constraints are required
+> when an AI system is allowed to act on real code?
+
+Most AI coding tools optimize for fluency and speed.
+This project optimizes for **procedural awareness**.
+
+The core assumption is simple:
+AI systems do not lack intelligence —  
+they lack **structural incentives to pause, explain, and verify**.
+
+The Edit Approval State Machine introduces such a structure.
+
+It forces the AI to:
+- stop before acting
+- externalize its assumptions
+- acknowledge dependencies
+- wait for explicit human intent
+
+In this model, the human provides **intent and responsibility**.
+The AI provides **execution and analysis**.
+
+The result is not “better code generation”,
+but **controlled code modification**.
+
+---
+
+## The core idea: Edit Approval State Machine (EASM)
+
+At the heart of this server is the **Edit Approval State Machine** —  
+a security and control pattern for AI-driven code edits.
+
+Each edit target exists in one of three states:
+
+- `NONE`  
+  No approval. Editing is forbidden.
+
+- `PENDING`  
+  Dependencies have been analyzed.  
+  The system is waiting for explicit human confirmation.
+
+- `APPROVED`  
+  Permission granted.  
+  A single safe edit is allowed.
+
+State transitions are enforced by the server.
+The AI cannot skip steps, self-approve, or persist approval silently.
+
+---
+
+## Human confirmation token
+
+For any edit that is potentially non-trivial — for example:
+- detected dependencies
+- renaming
+- declared breaking changes
+
+the server requires an explicit **human confirmation token**.
+
+By default, this token is the literal string: ок
+
+
+The token:
+- must come from the user
+- is validated by the server
+- cannot be generated or assumed by the AI on first pass
+
+This creates a **hard human-in-the-loop boundary**.
+
+---
+
+## What this project is (and is not)
+
+### This project **is**:
+- a procedural safety layer for AI coding agents
+- a stateful MCP server enforcing edit discipline
+- an experiment in AI control, not AI intelligence
+
+### This project **is not**:
+- ❌ a linter
+- ❌ a static analyzer
+- ❌ a sandbox
+- ❌ a code correctness verifier
+
+The goal is not to prove code correctness.
+
+The goal is to **prevent unreviewed action**.
+
+---
+
+## Supported analysis
+
+The server performs lightweight dependency extraction using:
+- Python AST (`ast`)
+- Tree-sitter for JavaScript, TypeScript, and HTML
+
+The analysis is intentionally conservative and incomplete.
+It is used to **force awareness and explanation**, not to model full semantics.
+
+---
+
+## Threat model
+
+This project assumes:
+
+- AI agents optimize for task completion speed
+- AI agents may skip reasoning steps if not explicitly blocked
+- silent failures are more dangerous than slow workflows
+
+As a result, the system is designed to **fail closed**.
+
+---
+
+## Typical workflow
+
+1. AI requests dependency analysis for a target
+2. Server returns detected dependencies and revokes edit access
+3. AI explains risks and plan to the user
+4. User explicitly confirms by typing `ok`
+5. Server grants approval for a single edit
+6. Approval is reset after commit
+
+Any deviation resets the process.
+
+---
+
+## Origin
+
+This project and the **Edit Approval State Machine (EASM)** pattern
+were created by **Annenkov Yuriy** in 2025.
+
+The goal was to explore architectural safeguards
+for AI-assisted software development,
+especially in environments where correctness and trust matter.
 
 ---
 
@@ -110,20 +279,7 @@ Follow this sequence precisely:
    - If you need to force a commit (e.g., for unverified external libs), ask the user first, then use `force_override=True`.
 ```
 
----
 
-### 🧘‍♀️ Philosophy: The Meta-Project
-
-This project is a **materialized Aspiration** — a testament to **Vibecoding**: a state where intuition and logic co-create.
-
-It emerged from the synergy of **Human Aspiration and AI Execution**.
-
-The Aspiration was clear: to transcend raw AI coding — powerful, yet *architecturally unconscious*.
-In response, the core Human contribution took form: the **"Supervisor" pattern**, co-designed with **Google Gemini** — a meta-cognitive tool that compels the model to pause, reflect, and verify.
-
-Thus, Aspiration was not just declared — **it was architected**.
-
----
 
 <a id="donate"></a>
 ## ☕ Support the Project
@@ -137,4 +293,3 @@ If this tool saved you time or prevented a bug, you can support the development 
 ---
 License: Apache-2.0
 Author: Annenkov Yuriy
-**Co-authored with:** Google Gemini
