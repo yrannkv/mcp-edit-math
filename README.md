@@ -1,6 +1,7 @@
 # 🛡️ Edit Math Supervisor (MCP Server)
 
 ![Vibecoding](https://img.shields.io/badge/Built_with-Vibecoding-ff69b4?style=flat-square)
+[![Donate](https://img.shields.io/badge/Donate-Crypto-green?style=flat-square)](#donate)
 ![PyPI](https://img.shields.io/pypi/v/mcp-edit-math)
 
 **Architectural Gatekeeper for AI Coding Assistants.**
