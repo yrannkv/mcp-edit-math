@@ -103,6 +103,7 @@ Follow this sequence precisely:
 3. 💾 COMMIT: Call `commit_safe_edit`.
    - If you need to force a commit (e.g., for unverified external libs), ask the user first, then use `force_override=True`.
 
+---
 
 ### 🧘‍♀️ Philosophy: The Meta-Project
 
@@ -115,6 +116,7 @@ In response, the core Human contribution took form: the **"Supervisor" pattern**
 
 Thus, Aspiration was not just declared — **it was architected**.
 
+---
 
 <a id="donate"></a>
 ## ☕ Support the Project
