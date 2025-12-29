@@ -81,7 +81,6 @@ If you use `uv`, you can run the server directly without cloning the repo:
 Add this to your AI's **Custom Instructions** or `.cursorrules` to activate the protocol:
 
 ```text
-
 === 🛡️ EDIT MATH PROTOCOL (v1.4.0) ===
 Trigger: When user types "#editmath".
 
@@ -100,9 +99,9 @@ Follow this sequence precisely:
      d. **CRITICAL:** END YOUR TURN. Do not simulate user response.
      e. When user replies "ok", call `calculate_integrity_score` again with `confirmation_token='ok'`.
 
-```markdown
 3. 💾 COMMIT: Call `commit_safe_edit`.
    - If you need to force a commit (e.g., for unverified external libs), ask the user first, then use `force_override=True`.
+```
 
 ---
 
@@ -124,9 +123,9 @@ Thus, Aspiration was not just declared — **it was architected**.
 
 If this tool saved you time or prevented a bug, you can support the development via crypto:
 
-*   **EVM (Ethereum / Base / BNB):** `0x13cA48D52bd7bB4f12Daa39730299b21c6DaA566`
-*   **Solana:** `3TPUjSQ77GaCESp1Dugt8AjQJaD51jHAtckEQNLuWd83`
-*   **Bitcoin:** `bc1qsles2ylewztk5297hnmfqwmjt2lk9qgchd78at`
+*   **EVM (Ethereum / Base / BNB):** `0x2D7CDf70F44169989953e4cfA671D0E456fBe465`
+*   **Solana:** `CGG9JouoxAs5Lja948h8ktn3CxLmbVmH1ocxPLEPCfVx`
+*   **Bitcoin:** `bc1q30u6rsyu8gx3urcf20p36npgj4uc2aan7k5ntn`
 
 ---
 License: Apache-2.0
