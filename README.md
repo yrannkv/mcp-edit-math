@@ -74,7 +74,9 @@ If you use `uv`, you can run the server directly without cloning the repo:
     }
   }
 }
+```
 
+---
 
 ### 🤖 System Prompt (Required)
 
