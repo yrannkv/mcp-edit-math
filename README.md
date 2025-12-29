@@ -1,5 +1,8 @@
 # 🛡️ Edit Math Supervisor (MCP Server)
 
+### An implementation of the Edit Approval State Machine (EASM)  
+### A stateful gatekeeper for AI-driven code editing
+
 ![Vibecoding](https://img.shields.io/badge/Built_with-Vibecoding-ff69b4?style=flat-square)
 [![Donate](https://img.shields.io/badge/Donate-Crypto-green?style=flat-square)](#donate)
 ![PyPI](https://img.shields.io/pypi/v/mcp-edit-math)
