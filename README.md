@@ -264,9 +264,11 @@ You are operating under a strict safety protocol. Direct file editing is FORBIDD
 Follow this sequence precisely:
 
 1. 🔍 SCAN: Call `scan_dependencies(code, target_function)`.
+   - **REQUIRED:** Provide `file_path` (absolute or relative) to scope the security check.
    - Determine `language` ("js", "ts", "html", "python") based on file extension.
 
 2. 🎫 GET TICKET: Call `calculate_integrity_score`.
+   - **REQUIRED:** Provide `file_path` matching the scan step.
    - **REQUIRED:** Provide `proposed_header` to check for renaming.
    - **If server returns "STOP. INTERVENTION REQUIRED":**
      a. STOP generating immediately.
@@ -277,8 +279,8 @@ Follow this sequence precisely:
 
 3. 💾 COMMIT: Call `commit_safe_edit`.
    - If you need to force a commit (e.g., for unverified external libs), ask the user first, then use `force_override=True`.
-```
 
+```
 
 
 <a id="donate"></a>

@@ -15,9 +15,10 @@ limitations under the License.
 
 ------------------------------------------------------------------------------
 MODULE: Edit Math Supervisor (MCP Server)
-DESCRIPTION: Architectural Gatekeeper for AI coding. 
+DESCRIPTION: An implementation of the Edit Approval State Machine (EASM)
+             A stateful gatekeeper for AI-driven code editing. 
              Enforces dependency checks before file edits.
-VERSION: 1.4.0 (State Machine + 'ok' Token Security)
+VERSION: 1.4.1 (Optional target_function for full file scanning)
 ------------------------------------------------------------------------------
 """
 
@@ -38,8 +39,17 @@ except ImportError:
 
 mcp = FastMCP("EditMathSupervisor")
 
-# МАШИНА СОСТОЯНИЙ: "NONE" -> "PENDING" -> "APPROVED"
+# МАШИНА СОСТОЯНИЙ
+# Ключ теперь уникален: "path/to/file.js::functionName" -> "PENDING"/"APPROVED"
 APPROVAL_STATE: Dict[str, str] = {}
+
+def get_state_key(file_path: str, target_function: str) -> str:
+    """Создает уникальный ключ для состояния, привязанный к файлу."""
+    if not file_path:
+        file_path = "unknown_file"
+    # Нормализуем путь (приводим к нижнему регистру и стандартным слешам)
+    norm_path = os.path.normpath(file_path).lower()
+    return f"{norm_path}::{target_function}"
 
 # Глобальные переменные для парсеров
 parser_js = None
@@ -61,16 +71,19 @@ def init_parsers():
             return ptr
 
     try:
+        # 1. JavaScript
         js_ptr = tree_sitter_javascript.language()
         JS_LANGUAGE = make_language(js_ptr, "javascript")
         parser_js = Parser()
         parser_js.set_language(JS_LANGUAGE)
         
+        # 2. TypeScript
         ts_ptr = tree_sitter_typescript.language_typescript()
         TS_LANGUAGE = make_language(ts_ptr, "typescript")
         parser_ts = Parser()
         parser_ts.set_language(TS_LANGUAGE)
 
+        # 3. HTML
         html_ptr = tree_sitter_html.language()
         html_lang = make_language(html_ptr, "html")
         parser_html = Parser()
@@ -99,17 +112,22 @@ def _extract_python_dependencies(code: str, target_name: str, ignore_custom: Opt
         return set(), [f"Python Syntax Error: {e}"]
 
     target_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name == target_name:
-                target_node = node
-                break
     
-    if target_node:
-        logs.append(f"✅ Found Python target: {type(target_node).__name__}")
-    else:
-        logs.append("❌ Target node NOT found. Scanning entire snippet.")
+    if target_name == "ENTIRE_FILE":
         target_node = tree
+        logs.append("✅ Scanning ENTIRE FILE (Python)")
+    else:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name == target_name:
+                    target_node = node
+                    break
+        
+        if target_node:
+            logs.append(f"✅ Found Python target: {type(target_node).__name__}")
+        else:
+            logs.append("❌ Target node NOT found. Scanning entire snippet.")
+            target_node = tree
 
     IGNORE_PYTHON = {
         "print", "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
@@ -165,13 +183,17 @@ def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optio
             if res: return res
         return None
 
-    target_node = find_target_node(root_node, target_name)
-    
-    if target_node:
-        logs.append(f"✅ Found target node type: {target_node.type}")
-    else:
-        logs.append("❌ Target node NOT found. Scanning root.")
+    target_node = None
+    if target_name == "ENTIRE_FILE":
         target_node = root_node
+        logs.append("✅ Scanning ENTIRE FILE (JS/TS)")
+    else:
+        target_node = find_target_node(root_node, target_name)
+        if target_node:
+            logs.append(f"✅ Found target node type: {target_node.type}")
+        else:
+            logs.append("❌ Target node NOT found. Scanning root.")
+            target_node = root_node
 
     IGNORE_LIST = {
         "console", "Math", "JSON", "Date", "Object", "Array", "Promise", "Error",
@@ -207,6 +229,7 @@ def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optio
                 if prop_node:
                     method_name = prop_node.text.decode('utf8')
                     obj_name = obj_node.text.decode('utf8') if obj_node else "unknown"
+                    
                     if (obj_node.type == 'this') or (obj_name == 'this'):
                         call_name = method_name
                     elif method_name not in IGNORE_METHODS:
@@ -215,9 +238,6 @@ def _extract_dependencies_from_tree(tree, target_name: str, ignore_custom: Optio
             if call_name:
                 if call_name not in IGNORE_LIST and call_name != target_name:
                     dependencies.add(call_name)
-                else:
-                    # logs.append(f"Ignored: {call_name}")
-                    pass
 
         for i in range(node.child_count):
             find_calls(node.child(i))
@@ -268,19 +288,22 @@ def _extract_html_dependencies(tree) -> Tuple[Set[str], List[str]]:
 @mcp.tool()
 def scan_dependencies(
     code: str, 
-    target_function: str, 
+    target_function: str = "ENTIRE_FILE",
+    file_path: str = "",  # <--- НОВЫЙ АРГУМЕНТ
     language: str = "auto", 
     ignore_custom: Union[List[str], str, None] = None
 ) -> str:
     """
-    Scans code for dependencies. Supports JS, TS, HTML, Python.
+    Scans code for dependencies.
+    Args:
+        file_path: Path to the file being scanned (required for security scoping).
     """
     try:
         if parser_js is None: return "CRITICAL ERROR: Tree-sitter parsers failed to initialize."
         
-        # СБРОС СОСТОЯНИЯ ПРИ НОВОМ СКАНИРОВАНИИ
-        # Это важно: если ИИ начал сканировать заново, он теряет право на правку
-        APPROVAL_STATE[target_function] = "NONE"
+        # СБРОС СОСТОЯНИЯ ДЛЯ КОНКРЕТНОГО ФАЙЛА
+        state_key = get_state_key(file_path, target_function)
+        APPROVAL_STATE[state_key] = "NONE"
         
         normalized_ignore = []
         if isinstance(ignore_custom, list):
@@ -365,7 +388,7 @@ def scan_dependencies(
         deps, logs = _extract_dependencies_from_tree(tree_raw, target_function, normalized_ignore)
         
         used_wrapper = False
-        if not deps:
+        if not deps and target_function != "ENTIRE_FILE":
             logs.append("--- Attempting Auto-Wrapper ---")
             wrapped_code = f"class AutoWrapper {{ {code} }}"
             tree_wrapped = selected_parser.parse(bytes(wrapped_code, "utf8"))
@@ -400,13 +423,14 @@ def calculate_integrity_score(
     target_function: str, 
     dependencies: List[str], 
     verified_dependencies: List[str],
+    file_path: str = "", # <--- НОВЫЙ АРГУМЕНТ
     proposed_header: str = "",
     breaking_change_description: str = "",
     confirmation_token: str = ""
 ) -> str:
     """
     Рассчитывает Integrity Score.
-    Использует State Machine для защиты от "читерства" ИИ.
+    Использует State Machine и Scoped Security (привязка к файлу).
     """
     deps_safe = dependencies if dependencies else []
     verified_safe = verified_dependencies if verified_dependencies else []
@@ -414,20 +438,18 @@ def calculate_integrity_score(
     # 1. Авто-детекция переименования
     is_renaming = False
     if proposed_header:
-        if target_function not in proposed_header:
+        if target_function not in proposed_header and target_function != "ENTIRE_FILE":
             is_renaming = True
     
     # 2. Нужна ли защита?
     needs_confirmation = (len(deps_safe) > 0) or (len(breaking_change_description) > 0) or is_renaming
 
-    # 3. МАШИНА СОСТОЯНИЙ
-    current_state = APPROVAL_STATE.get(target_function, "NONE")
+    # 3. МАШИНА СОСТОЯНИЙ (Scoped)
+    state_key = get_state_key(file_path, target_function)
+    current_state = APPROVAL_STATE.get(state_key, "NONE")
     
-    # Сценарий А: Первый заход (или ИИ пытается проскочить сразу)
-    # Если защита нужна, но мы еще не в режиме PENDING -> БЛОКИРУЕМ
     if needs_confirmation and current_state != "PENDING":
-        # Переводим в режим ожидания
-        APPROVAL_STATE[target_function] = "PENDING"
+        APPROVAL_STATE[state_key] = "PENDING"
         
         reasons = []
         if deps_safe: reasons.append(f"Dependencies: {len(deps_safe)}")
@@ -438,6 +460,7 @@ def calculate_integrity_score(
         ✋ STRICT MODE INTERVENTION (Step 1/2)
         -------------------------------------
         Reason: {', '.join(reasons)}
+        Scope: {state_key}
         
         The server FORBIDS silent edits. You must obtain user permission.
         
@@ -449,19 +472,14 @@ def calculate_integrity_score(
         5. Call this tool again with `confirmation_token='ok'`.
         """
 
-    # Сценарий Б: Второй заход (после ответа пользователя)
     if current_state == "PENDING":
-        # Проверяем токен "ok" (регистронезависимо)
         is_confirmed = (confirmation_token.strip().lower() == "ok")
-        
         if not is_confirmed:
              return "⛔ ACCESS DENIED. I am waiting for the 'ok' token from the user."
-        
-        # Если токен верный - переходим к расчету баллов
 
     # 4. Расчет баллов
     if not deps_safe and not is_renaming and not breaking_change_description:
-        APPROVAL_STATE[target_function] = "APPROVED"
+        APPROVAL_STATE[state_key] = "APPROVED"
         return f"Score: 1.0 (Safe). Edit to '{target_function}' is allowed."
 
     BASE_WEIGHT = 0.5
@@ -480,7 +498,7 @@ def calculate_integrity_score(
     is_safe = current_score >= 0.99
     
     if is_safe:
-        APPROVAL_STATE[target_function] = "APPROVED"
+        APPROVAL_STATE[state_key] = "APPROVED"
         return f"Integrity Score: {current_score:.4f} / 1.0\nSTATUS: ✅ ACCESS GRANTED (User Confirmed)"
     else:
         extra_verified = set(verified_safe) - set(deps_safe)
@@ -489,7 +507,8 @@ def calculate_integrity_score(
 
 @mcp.tool()
 def commit_safe_edit(target_function: str, file_path: str, full_file_content: str, force_override: bool = False) -> str:
-    current_state = APPROVAL_STATE.get(target_function, "NONE")
+    state_key = get_state_key(file_path, target_function)
+    current_state = APPROVAL_STATE.get(state_key, "NONE")
     
     if current_state != "APPROVED" and not force_override:
         return f"⛔ SECURITY BLOCK: Integrity Score is NOT 1.0. Current state: {current_state}. Access Denied."
@@ -498,7 +517,7 @@ def commit_safe_edit(target_function: str, file_path: str, full_file_content: st
         file_path = os.path.normpath(file_path)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(full_file_content)
-        APPROVAL_STATE[target_function] = "NONE" # Сброс после записи
+        APPROVAL_STATE[state_key] = "NONE" # Сброс после записи
         return f"✅ SAFE COMMIT: File '{file_path}' updated."
     except Exception as e:
         return f"❌ ERROR: {str(e)}"
