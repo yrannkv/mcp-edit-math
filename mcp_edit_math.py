@@ -285,6 +285,9 @@ def _extract_html_dependencies(tree) -> Tuple[Set[str], List[str]]:
     traverse(root_node)
     return dependencies, logs
 
+def _user_confirmed(user_last_message: str) -> bool:
+    return user_last_message.strip().lower() == "ok"
+
 @mcp.tool()
 def scan_dependencies(
     code: str, 
@@ -420,64 +423,76 @@ def scan_dependencies(
 
 @mcp.tool()
 def calculate_integrity_score(
-    target_function: str, 
-    dependencies: List[str], 
+    target_function: str,
+    dependencies: List[str],
     verified_dependencies: List[str],
-    file_path: str = "", # <--- НОВЫЙ АРГУМЕНТ
+    file_path: str = "",
     proposed_header: str = "",
     breaking_change_description: str = "",
-    confirmation_token: str = ""
+    user_last_message: str = ""   # ← ВАЖНО
 ) -> str:
     """
-    Рассчитывает Integrity Score.
-    Использует State Machine и Scoped Security (привязка к файлу).
+    Calculates Integrity Score.
+    Uses State Machine + Scoped Security (file-bound).
     """
-    deps_safe = dependencies if dependencies else []
-    verified_safe = verified_dependencies if verified_dependencies else []
 
-    # 1. Авто-детекция переименования
+    deps_safe = dependencies or []
+    verified_safe = verified_dependencies or []
+
+    # 1. Auto-detect renaming
     is_renaming = False
     if proposed_header:
         if target_function not in proposed_header and target_function != "ENTIRE_FILE":
             is_renaming = True
-    
-    # 2. Нужна ли защита?
-    needs_confirmation = (len(deps_safe) > 0) or (len(breaking_change_description) > 0) or is_renaming
 
-    # 3. МАШИНА СОСТОЯНИЙ (Scoped)
+    # 2. Do we need confirmation?
+    needs_confirmation = bool(
+        deps_safe or breaking_change_description or is_renaming
+    )
+
+    # 3. State machine (scoped)
     state_key = get_state_key(file_path, target_function)
     current_state = APPROVAL_STATE.get(state_key, "NONE")
-    
-    if needs_confirmation and current_state != "PENDING":
+
+    # --- STEP 1: enter strict mode ---
+    if needs_confirmation and current_state == "NONE":
         APPROVAL_STATE[state_key] = "PENDING"
-        
+
         reasons = []
-        if deps_safe: reasons.append(f"Dependencies: {len(deps_safe)}")
-        if breaking_change_description: reasons.append("Breaking change declared")
-        if is_renaming: reasons.append("Renaming detected")
-        
+        if deps_safe:
+            reasons.append(f"Dependencies: {len(deps_safe)}")
+        if breaking_change_description:
+            reasons.append("Breaking change declared")
+        if is_renaming:
+            reasons.append("Renaming detected")
+
         return f"""
-        ✋ STRICT MODE INTERVENTION (Step 1/2)
-        -------------------------------------
-        Reason: {', '.join(reasons)}
-        Scope: {state_key}
-        
-        The server FORBIDS silent edits. You must obtain user permission.
-        
-        INSTRUCTION FOR AI:
-        1. STOP. Do not edit yet.
-        2. Explain the plan/conflicts to the user.
-        3. ASK THE USER: "Type 'ok' to confirm."
-        4. Wait for the user's input.
-        5. Call this tool again with `confirmation_token='ok'`.
-        """
+✋ STRICT MODE INTERVENTION (Step 1/2)
+-------------------------------------
+Reason: {', '.join(reasons)}
+Scope: {state_key}
 
+The server FORBIDS silent edits.
+
+INSTRUCTION FOR AI:
+1. STOP. Do not edit yet.
+2. Explain the plan/conflicts to the user.
+3. ASK THE USER: "Type 'ok' to confirm."
+4. Wait for the user's input.
+5. Call this tool again, passing the FULL last user message
+   as `user_last_message`.
+"""
+
+    # --- STEP 2: waiting for confirmation ---
     if current_state == "PENDING":
-        is_confirmed = (confirmation_token.strip().lower() == "ok")
-        if not is_confirmed:
-             return "⛔ ACCESS DENIED. I am waiting for the 'ok' token from the user."
+        if not _user_confirmed(user_last_message):
+            return (
+                "⛔ ACCESS DENIED.\n"
+                "Waiting for explicit user confirmation.\n"
+                "The last user message is NOT exactly 'ok'."
+            )
 
-    # 4. Расчет баллов
+    # 4. Score calculation
     if not deps_safe and not is_renaming and not breaking_change_description:
         APPROVAL_STATE[state_key] = "APPROVED"
         return f"Score: 1.0 (Safe). Edit to '{target_function}' is allowed."
@@ -485,7 +500,7 @@ def calculate_integrity_score(
     BASE_WEIGHT = 0.5
     REMAINING_WEIGHT = 0.5
     count_deps = len(deps_safe)
-    
+
     if count_deps == 0:
         current_score = 1.0
     else:
@@ -495,15 +510,20 @@ def calculate_integrity_score(
             if dep in verified_safe:
                 current_score += weight_per_dep
 
-    is_safe = current_score >= 0.99
-    
-    if is_safe:
+    if current_score >= 0.99:
         APPROVAL_STATE[state_key] = "APPROVED"
-        return f"Integrity Score: {current_score:.4f} / 1.0\nSTATUS: ✅ ACCESS GRANTED (User Confirmed)"
-    else:
-        extra_verified = set(verified_safe) - set(deps_safe)
-        hint_msg = f"\n💡 HINT: You verified items NOT in the list: {list(extra_verified)}.\nIf renaming, verify the ORIGINAL name." if extra_verified else ""
-        return f"Integrity Score: {current_score:.4f} / 1.0\nSTATUS: ⛔ ACCESS DENIED\nUser confirmed, BUT you missed verifying dependencies: {[d for d in deps_safe if d not in verified_safe]}{hint_msg}"
+        return (
+            f"Integrity Score: {current_score:.4f} / 1.0\n"
+            "STATUS: ✅ ACCESS GRANTED (User Confirmed)"
+        )
+
+    missing = [d for d in deps_safe if d not in verified_safe]
+    return (
+        f"Integrity Score: {current_score:.4f} / 1.0\n"
+        "STATUS: ⛔ ACCESS DENIED\n"
+        f"Missing dependency verification: {missing}"
+    )
+
 
 @mcp.tool()
 def commit_safe_edit(target_function: str, file_path: str, full_file_content: str, force_override: bool = False) -> str:
